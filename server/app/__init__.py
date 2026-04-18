@@ -100,19 +100,24 @@ def create_app():
         return jsonify({'cancelled': count})
 
     # ── React SPA fallback ────────────────────────────────────────────────────
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_react(path):
-        static_dir = app.static_folder
-        full_path  = os.path.join(static_dir, path)
+        if path.startswith('api/'):
+            return jsonify({'error': 'Not found'}), 404
+        full_path = os.path.join(static_dir, path)
         if path and os.path.exists(full_path):
             return send_from_directory(static_dir, path)
         return send_from_directory(static_dir, 'index.html')
 
     # ── Error handlers ────────────────────────────────────────────────────────
-  
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({'error': 'Not found'}), 404
+
     @app.errorhandler(500)
     def server_error(e):
         return jsonify({'error': 'Internal server error'}), 500
-
     return app
