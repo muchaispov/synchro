@@ -105,4 +105,17 @@ def create_app():
     def server_error(e):
         return jsonify({'error': 'Internal server error'}), 500
 
+    static_folder = os.path.join(os.path.dirname(__file__), 'static')
+
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_frontend(path):
+        if path.startswith('api/'):
+            from flask import abort
+            abort(404)
+        file_path = os.path.join(static_folder, path)
+        if path and os.path.exists(file_path):
+            return send_from_directory(static_folder, path)
+        return send_from_directory(static_folder, 'index.html')    
+
     return app
