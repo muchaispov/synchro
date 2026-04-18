@@ -1,34 +1,27 @@
-"""
-__init__.py — Synchro Flask application factory.
-
-Creates and configures the Flask app, registers all blueprints,
-serves the React frontend build, and exposes a health check + cron endpoint.
-"""
-
 import os
 from flask import Flask, jsonify, request, send_from_directory
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-
 from app.models import db
-from app.auth         import auth_bp,    bcrypt
+from app.auth         import auth_bp, bcrypt
 from app.links        import links_bp
 from app.transactions import tx_bp
 from app.payments     import pay_bp
 from app.seller       import seller_bp
 from app.admin        import admin_bp
 
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 
 def create_app():
-    app = Flask(__name__, static_folder='static', static_url_path='')
+    app = Flask(__name__, static_folder=None)
 
     # ── Config ────────────────────────────────────────────────────────────────
     db_url = os.getenv('DATABASE_URL', 'sqlite:///synchro.db')
-    # Render uses postgres:// — SQLAlchemy 1.4+ requires postgresql://
     app.config['SQLALCHEMY_DATABASE_URI']        = db_url.replace('postgres://', 'postgresql://')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY']                 = os.getenv('JWT_SECRET_KEY', 'dev-jwt-secret-change-me')
-    app.config['MAX_CONTENT_LENGTH']             = 16 * 1024 * 1024  # 16 MB
+    app.config['SECRET_KEY']                     = os.getenv('SECRET_KEY', 'dev-secret-change-me')
+    app.config['MAX_CONTENT_LENGTH']             = 16 * 1024 * 1024
 
     # ── Extensions ────────────────────────────────────────────────────────────
     db.init_app(app)
@@ -37,14 +30,14 @@ def create_app():
     CORS(app, resources={r'/api/*': {'origins': os.getenv('FRONTEND_URL', '*')}})
 
     # ── Blueprints ────────────────────────────────────────────────────────────
-    app.register_blueprint(auth_bp,    url_prefix='/api/auth')
-    app.register_blueprint(links_bp,   url_prefix='/api/links')
-    app.register_blueprint(tx_bp,      url_prefix='/api/transactions')
-    app.register_blueprint(pay_bp,     url_prefix='/api/payments')
-    app.register_blueprint(seller_bp,  url_prefix='/api/seller')
-    app.register_blueprint(admin_bp,   url_prefix='/api/admin')
+    app.register_blueprint(auth_bp,   url_prefix='/api/auth')
+    app.register_blueprint(links_bp,  url_prefix='/api/links')
+    app.register_blueprint(tx_bp,     url_prefix='/api/transactions')
+    app.register_blueprint(pay_bp,    url_prefix='/api/payments')
+    app.register_blueprint(seller_bp, url_prefix='/api/seller')
+    app.register_blueprint(admin_bp,  url_prefix='/api/admin')
 
-    # ── Utility routes ────────────────────────────────────────────────────────
+    # ── API utility routes ────────────────────────────────────────────────────
     @app.get('/api/health')
     def health():
         return jsonify({'status': 'ok', 'service': 'synchro'})
@@ -60,17 +53,16 @@ def create_app():
         if existing:
             return jsonify({'message': 'Already on the waitlist!', 'already': True})
         entry = WaitlistEntry(
-            email = email,
-            name  = d.get('name', '').strip(),
-            role  = d.get('role', 'seller'),
+            email=email,
+            name=d.get('name', '').strip(),
+            role=d.get('role', 'seller'),
         )
         db.session.add(entry)
         db.session.commit()
-        return jsonify({'message': 'You\'re on the waitlist!', 'id': entry.id}), 201
+        return jsonify({'message': "You're on the waitlist!", 'id': entry.id}), 201
 
     @app.get('/api/waitlist')
     def list_waitlist():
-        # Accept either admin secret header OR valid admin JWT
         secret_ok = request.headers.get('X-Admin-Secret') == os.getenv('ADMIN_SEED_SECRET', 'changeme')
         jwt_ok = False
         if not secret_ok:
@@ -92,32 +84,24 @@ def create_app():
 
     @app.post('/api/cron/expire')
     def cron_expire():
-        secret = request.headers.get('X-Cron-Secret', '')
-        if secret != os.getenv('CRON_SECRET', 'changeme'):
+        if request.headers.get('X-Cron-Secret', '') != os.getenv('CRON_SECRET', 'changeme'):
             return jsonify({'error': 'Forbidden'}), 403
         from app.tasks import expire_pending_transactions
         count = expire_pending_transactions(app)
         return jsonify({'cancelled': count})
 
-    # ── React SPA fallback ────────────────────────────────────────────────────
-    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-
+    # ── Serve React for EVERYTHING that isn't /api ────────────────────────────
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_react(path):
+        # Let API 404s be JSON
         if path.startswith('api/'):
             return jsonify({'error': 'Not found'}), 404
-        full_path = os.path.join(static_dir, path)
-        if path and os.path.exists(full_path):
-            return send_from_directory(static_dir, path)
-        return send_from_directory(static_dir, 'index.html')
+        # Serve real file if it exists (JS, CSS, images, etc.)
+        file_path = os.path.join(STATIC_DIR, path)
+        if path and os.path.isfile(file_path):
+            return send_from_directory(STATIC_DIR, path)
+        # Everything else → index.html (React handles the routing)
+        return send_from_directory(STATIC_DIR, 'index.html')
 
-    # ── Error handlers ────────────────────────────────────────────────────────
-    @app.errorhandler(404)
-    def not_found(e):
-        return jsonify({'error': 'Not found'}), 404
-
-    @app.errorhandler(500)
-    def server_error(e):
-        return jsonify({'error': 'Internal server error'}), 500
     return app
