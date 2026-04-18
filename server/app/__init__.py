@@ -20,7 +20,7 @@ from app.admin        import admin_bp
 
 
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder='static', static_url_path='')
 
     # ── Config ────────────────────────────────────────────────────────────────
     db_url = os.getenv('DATABASE_URL', 'sqlite:///synchro.db')
@@ -70,8 +70,21 @@ def create_app():
 
     @app.get('/api/waitlist')
     def list_waitlist():
-        # Admin only — basic secret header check
-        if request.headers.get('X-Admin-Secret') != os.getenv('ADMIN_SEED_SECRET','changeme'):
+        # Accept either admin secret header OR valid admin JWT
+        secret_ok = request.headers.get('X-Admin-Secret') == os.getenv('ADMIN_SEED_SECRET', 'changeme')
+        jwt_ok = False
+        if not secret_ok:
+            try:
+                from flask_jwt_extended import decode_token
+                auth = request.headers.get('Authorization', '')
+                if auth.startswith('Bearer '):
+                    token = decode_token(auth.split(' ')[1])
+                    from app.models import User
+                    u = User.query.get(token['sub'])
+                    jwt_ok = u and u.role == 'admin'
+            except Exception:
+                pass
+        if not secret_ok and not jwt_ok:
             return jsonify({'error': 'Forbidden'}), 403
         from app.models import WaitlistEntry
         entries = WaitlistEntry.query.order_by(WaitlistEntry.created_at.desc()).all()
@@ -86,18 +99,20 @@ def create_app():
         count = expire_pending_transactions(app)
         return jsonify({'cancelled': count})
 
-   # ── React SPA fallback ────────────────────────────────────────────────────
-    static_dir = os.path.join(os.path.dirname(__file__), 'static')
-
+    # ── React SPA fallback ────────────────────────────────────────────────────
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_react(path):
-        if path.startswith('api/'):
-            return jsonify({'error': 'Not found'}), 404
-        full = os.path.join(static_dir, path)
-        if path and os.path.exists(full):
+        static_dir = app.static_folder
+        full_path  = os.path.join(static_dir, path)
+        if path and os.path.exists(full_path):
             return send_from_directory(static_dir, path)
         return send_from_directory(static_dir, 'index.html')
+
+    # ── Error handlers ────────────────────────────────────────────────────────
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({'error': 'Not found'}), 404
 
     @app.errorhandler(500)
     def server_error(e):
