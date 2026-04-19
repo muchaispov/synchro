@@ -55,6 +55,7 @@ def create_app():
         entry = WaitlistEntry(
             email=email,
             name=d.get('name', '').strip(),
+            phone=d.get('phone', '').strip(),
             role=d.get('role', 'seller'),
         )
         db.session.add(entry)

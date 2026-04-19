@@ -398,6 +398,7 @@ class WaitlistEntry(db.Model):
     id         = db.Column(db.String(36),  primary_key=True, default=gen_id)
     email      = db.Column(db.String(120), unique=True, nullable=False)
     name       = db.Column(db.String(120), nullable=True)
+    phone      = db.Column(db.String(20),  nullable=True)
     role       = db.Column(db.String(20),  default='seller')  # seller | buyer | both
     created_at = db.Column(db.DateTime,    default=datetime.utcnow)
 
@@ -406,6 +407,7 @@ class WaitlistEntry(db.Model):
             'id':         self.id,
             'email':      self.email,
             'name':       self.name,
+            'phone':      self.phone,
             'role':       self.role,
             'created_at': self.created_at.isoformat(),
         }
