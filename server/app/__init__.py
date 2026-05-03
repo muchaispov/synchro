@@ -63,21 +63,9 @@ def create_app():
         return jsonify({'message': "You're on the waitlist!", 'id': entry.id}), 201
 
     @app.get('/api/waitlist')
-    def list_waitlist():
-        secret_ok = request.headers.get('X-Admin-Secret') == os.getenv('ADMIN_SEED_SECRET', 'changeme')
-        jwt_ok = False
-        if not secret_ok:
-            try:
-                from flask_jwt_extended import decode_token
-                auth = request.headers.get('Authorization', '')
-                if auth.startswith('Bearer '):
-                    token = decode_token(auth.split(' ')[1])
-                    from app.models import User
-                    u = User.query.get(token['sub'])
-                    jwt_ok = u and u.role == 'admin'
-            except Exception:
-                pass
-        if not secret_ok and not jwt_ok:
+    def list_waitlist_public():
+        # Only allow with admin secret header (for curl access)
+        if request.headers.get('X-Admin-Secret') != os.getenv('ADMIN_SEED_SECRET', 'changeme'):
             return jsonify({'error': 'Forbidden'}), 403
         from app.models import WaitlistEntry
         entries = WaitlistEntry.query.order_by(WaitlistEntry.created_at.desc()).all()

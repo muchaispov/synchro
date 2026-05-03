@@ -475,3 +475,13 @@ def list_invites():
     invites = AdminInvite.query.order_by(AdminInvite.created_at.desc()).limit(20).all()
     return jsonify([i.to_dict() for i in invites])
 
+# ── Waitlist ──────────────────────────────────────────────────────────────────
+
+@admin_bp.get('/waitlist')
+@jwt_required()
+def admin_waitlist():
+    _, err = _require_admin()
+    if err: return err
+    from app.models import WaitlistEntry
+    entries = WaitlistEntry.query.order_by(WaitlistEntry.created_at.desc()).all()
+    return jsonify({'count': len(entries), 'entries': [e.to_dict() for e in entries]})
